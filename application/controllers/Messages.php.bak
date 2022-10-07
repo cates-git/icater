@@ -1,0 +1,110 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+class Messages extends CI_Controller 
+{
+
+	public function __construct()
+	{
+        parent::__construct();
+		$this->load->model('Messages_model');
+	}
+
+	public function index()
+	{		
+		$data['page_title'] = 'Messages';
+		$data['nav_active'] = 'messages';
+		
+		$data['page_js'] = [
+			base_url('assets/js/messages/list.js')
+		];
+
+		if (get_user_type() == 2) 
+		{
+			$data['page_title'] = 'Customer Service';
+			$user_id = get_user_data()['id'];
+			$page_data['user_id'] = $user_id;
+			$page_data['receiver'] = 0;
+			$page_data['list'] = $this->Messages_model->customer_messages([], ['sender' => $user_id, 'receiver' => $user_id]);
+			$data['body'] = $this->load->view('messages/list', $page_data, true);
+		} 
+		else 
+		{
+			$user_id = get_user_data()['id'];
+			$list = $this->Messages_model->all([], ['sender' => $user_id, 'receiver' => [$user_id, 0]]);
+			$senders = array_column_obj($list, 'sender');
+			$receivers = array_column_obj($list, 'receiver');
+			
+			$user_ids = array_unique(array_merge($senders, $receivers));
+			
+			$this->load->model('Account_model');
+			
+			$users = $this->Account_model->users(['id' => $user_ids], 'id, CONCAT(first_name, " ", last_name) AS name, email, avatar');
+			
+			$page_data['users'] = set_key_obj($users, 'id');
+			$page_data['list'] = $list;
+
+			$data['body'] = $this->load->view('messages/grouped', $page_data, true);
+		}
+
+		$this->load->view('index', $data);
+	}
+
+	public function view($customer_id)
+	{		
+		$data['page_title'] = 'Messages';
+		$data['nav_active'] = 'messages';
+		
+		$data['page_js'] = [
+			base_url('assets/js/messages/list.js')
+		];
+
+		$user_id = $customer_id;
+		$page_data['user_id'] = get_user_data()['id'];
+		$page_data['receiver'] = $customer_id;
+		
+		$this->load->model('Account_model');
+		$page_data['customer'] = $this->Account_model->get(['id' => $customer_id], 'id, CONCAT(first_name, " ", last_name) AS name, email, avatar');
+		
+		$page_data['list'] = $this->Messages_model->customer_messages([], ['sender' => $user_id, 'receiver' => $user_id]);
+		$data['body'] = $this->load->view('messages/alist', $page_data, true);
+
+		$this->load->view('index', $data);
+	}
+
+	public function send ()
+	{
+		$receiver = 0;
+		if (get_user_type() != 2) 
+		{
+			$receiver = $this->input->post('receiver');
+		}
+		
+		if (has_empty_post())
+		{
+			json_response(FALSE, 'Fill in the empty fields');
+		}
+
+		$fields = ['receiver', 'message'];
+
+		$data = parse_data($_POST, $fields);
+
+		$data['sender'] = get_user_data()['id'];
+
+		try 
+		{
+			$this->db->trans_start();
+			
+			$this->Messages_model->create($data);
+
+			$this->db->trans_complete();
+		}
+		catch(Exeption $e)
+		{
+			$this->db->trans_rollback();
+			json_response(FALSE, $e->getMessage());
+		}
+		
+        json_response(TRUE, "Sent successfully");
+	}
+}
